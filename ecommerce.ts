@@ -12,9 +12,29 @@ interface CartItem{
     quantity:number;
     price:number;
 }
+interface Discount{
+    id:number;
+    code:string;
+    discountType?:string;
+    discountValue:number;
+    isActive:boolean;
+    minPurchaseAmount?:number
+}
+interface Order{
+    orderId:number;
+    items: CartItem[];
+    subTotal:number;
+    taxAmount:number;
+    discountAmount:number;
+    finalTotal: number;
+    appliedDiscount?:number
+    orderDate:Date
+}
 //Product Manager
 class ProductManager{
    private products: Product[] = [];
+   private discounts: Discount[] = [];
+
    //add product method
    public addProduct(id:number,name: string,price:number,quantityInStock:number,category?:string): void{
      const newProduct : Product = {id,name,price,quantityInStock,category};
@@ -75,10 +95,44 @@ class ProductManager{
     public getAllProducts(): Product[]{
         return[...this.products]
     }
+    public adddiscount(discount: Discount): void{
+        const discountExists = this.discounts.some(d=> d.code === discount.code);
+        if(discountExists){
+            throw new Error(`Discount code ${discount.code} has already been used`)
+        }
+        this.discounts.push(discount)
+        console.log(`Discount ${discount.code} has already been applied`)
+    //   
+   }
+   public getDiscountByCode(code: string): Discount | null{
+    const foundDiscount = this.discounts.find(d=> d.code === code);
+    if(!foundDiscount){
+        return null
+    }
+    return foundDiscount
+   }
+   public validateDiscount(code: string,cartTotal: number): boolean{
+    const discount = this.getDiscountByCode(code);
+
+    if(!discount){
+        console.log("Discount code does not exixt.")
+        return false;
+    }
+    if(!discount.isActive){
+        console.log("This discount code is expired or inactive")
+        return false;
+    }
+    if(discount.minPurchaseAmount !==undefined && cartTotal < discount.minPurchaseAmount){
+        console.log(`You need to spend at least $${discount.minPurchaseAmount} to use the code`)
+    }
+    return true;
+   }
 }
 // cart class
 class ShoppingCart{
     private items: CartItem[] = [];
+    private appliedDiscount: Discount | null;
+    private taxRate: number = 0.1
 
     private productManager: ProductManager;
 
@@ -145,13 +199,100 @@ class ShoppingCart{
         //if cart item is not up to 0
         if(newQuantity <=0){
             throw new Error("Quantity must be greater than 0")
-        }
+        }   
         const product = this.productManager.getProductById(productId);
         if(product && newQuantity > product.quantityInStock){
             throw new Error(`Cannot update quantity. Only ${product.quantityInStock} items available in stock.`);
         }
         cartItem.quantity = newQuantity;
     console.log(`Updated quantity to ${newQuantity}.`);
+    }
+    // applying discount
+    public applyDiscount(code: string): void { 
+        const cartTotal = this.getCartTotal();
+
+        const discount = this.productManager.getDiscountByCode(code);
+
+        if (!discount) {
+            console.error(`Error: Discount code "${code}" does not exist.`);
+            return;
+        }
+
+        const isValid = this.productManager.validateDiscount(code, cartTotal);
+
+        if (!isValid) {
+            console.error(`Error: Discount code "${code}" is invalid.`);
+            return;
+        }
+
+        this.appliedDiscount = discount;
+        console.log(`Success: Discount code "${code}" applied!`);
+    }
+    public getSubTotal(): number{
+        return this.getCartTotal()
+    }
+    public getTaxAmount(): number{
+        return this.getSubTotal() * this.taxRate
+    }
+    public getDiscountAmount(): number{
+        //incase no discount is applied
+        if(!this.appliedDiscount){
+            return 0;
+        }
+        const subtotal = this.getSubTotal();
+        // if discount type is percentage or fixed
+        if(this.appliedDiscount.discountType === "percentage"){
+            return (subtotal * this.appliedDiscount.discountValue) /100;
+        }else if(this.appliedDiscount.discountType == "fixed"){
+            return this.appliedDiscount.discountValue;
+        }
+        return 0
+    }
+    //calculating Final Total
+    public getFinalTotal(): number{
+        return this.getSubTotal() + this.getTaxAmount() - this.getDiscountAmount()
+    }
+    //removing discount
+    public removeDiscount(): void{
+        this.appliedDiscount = null;
+        console.log("Discount code has been removed from the cart. ");
+
+    }
+    // the main order summary of the cart
+    public getOrderSummary(): Order{
+        const orderSummary: Order = {
+            orderId: Math.floor(Math.random() * 90000) + 10000,
+            items: this.getCartItems(),
+            subTotal: this.getSubTotal(),
+            taxAmount: this.getTaxAmount(),
+            discountAmount: this.getDiscountAmount(),
+            finalTotal:this.getFinalTotal(),
+            appliedDiscount:this.appliedDiscount ? this.appliedDiscount.id : undefined,
+            orderDate: new Date(),
+        }
+        return orderSummary;
+    }
+    public printOrderReceipt(): void {
+        console.log("\n=================================");
+        console.log("         ORDER RECEIPT           ");
+        console.log("=================================");
+        
+        // Loop through items 
+        
+        this.items.forEach(item => {
+            const product = this.productManager.getProductById(item.productId);
+            console.log(`${product?.name} x ${item.quantity} - $${(item.price * item.quantity).toFixed(2)}`);
+        });
+
+        console.log("---------------------------------");
+        console.log(`Subtotal:         $${this.getSubTotal().toFixed(2)}`);
+        console.log(`Tax (10%):        $${this.getTaxAmount().toFixed(2)}`);
+        if (this.getDiscountAmount() > 0) {
+            console.log(`Discount Applied: -$${this.getDiscountAmount().toFixed(2)} (${this.appliedDiscount?.code})`);
+        }
+        console.log("---------------------------------");
+        console.log(`FINAL TOTAL:      $${this.getFinalTotal().toFixed(2)}`);
+        console.log("=================================\n");
     }
 }
 
@@ -230,3 +371,56 @@ finalCart.forEach(item => {
 })
 console.log("Final Total: $" + cart.getCartTotal().toFixed(2))
 console.log("================================\n")
+console.log("\n========== ADDING SAMPLE DISCOUNTS ==========");
+productManager.adddiscount({ id: 1, code: "SAVE10", discountType: "percentage", discountValue: 10, isActive: true });
+productManager.adddiscount({ id: 2, code: "SUMMER20", discountType: "percentage", discountValue: 20, isActive: true, minPurchaseAmount: 5000 }); // High min spend for testing
+productManager.adddiscount({ id: 3, code: "FLAT100", discountType: "fixed", discountValue: 100, isActive: true });
+productManager.adddiscount({ id: 4, code: "EXPIRED50", discountType: "percentage", discountValue: 50, isActive: false });
+console.log("====================================================\n");
+
+console.log("========== CART BEFORE ANY DISCOUNT ==========");
+console.log(`Subtotal:    $${cart.getSubTotal().toFixed(2)}`);
+console.log(`Tax Amount:  $${cart.getTaxAmount().toFixed(2)}`);
+console.log(`Final Total: $${cart.getFinalTotal().toFixed(2)}`);
+console.log("=======================================================\n");
+
+console.log("========== STEP 4.5: APPLYING VALID DISCOUNT (SAVE10) ==========");
+cart.applyDiscount("SAVE10");
+
+console.log("\n--- CART WITH SAVE10 DISCOUNT ---");
+console.log(`Subtotal:        $${cart.getSubTotal().toFixed(2)}`);
+console.log(`Discount Amount: -$${cart.getDiscountAmount().toFixed(2)}`);
+console.log(`Tax Amount:      $${cart.getTaxAmount().toFixed(2)}`);
+console.log(`Final Total:     $${cart.getFinalTotal().toFixed(2)}`);
+console.log("===============================================================\n");
+
+console.log("========== STEP 4.6: TRYING INVALID DISCOUNTS ==========");
+console.log("-> Test 1: Fake Code");
+cart.applyDiscount("FAKECODE99"); 
+
+console.log("\n-> Test 2: Expired Code");
+cart.applyDiscount("EXPIRED50"); 
+console.log("=======================================================\n");
+
+console.log("==========  REMOVING THE DISCOUNT ==========");
+cart.removeDiscount();
+console.log(`Final Total back to: $${cart.getFinalTotal().toFixed(2)}`);
+console.log("====================================================\n");
+
+console.log("==========  APPLYING FLAT100 & RECEIPT ==========");
+cart.applyDiscount("FLAT100");
+cart.printOrderReceipt();
+console.log("========================================================\n");
+
+console.log("========== TESTING EDGE CASES ==========");
+
+// Edge Case 1: Minimum purchase constraint test
+console.log("-> Test A: Minimum Not Met (SUMMER20 requires $5000)");
+cart.applyDiscount("SUMMER20"); 
+
+// Edge Case 2: Empty Cart Test
+console.log("\n-> Test B: Applying discount to a completely empty cart");
+const temporaryEmptyCart = new ShoppingCart(productManager);
+temporaryEmptyCart.applyDiscount("SAVE10"); 
+temporaryEmptyCart.printOrderReceipt();
+console.log("===================================================\n");
